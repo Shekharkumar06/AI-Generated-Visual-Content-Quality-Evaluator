@@ -294,78 +294,78 @@ if evaluate:
 
         overall = get_overall_score(relevance_display, fluency)
 
-            st.write("")
-            st.subheader("Evaluation results")
-            metric_columns = st.columns(3, gap="medium")
-            with metric_columns[0]:
-                st.metric("Relevance Score", f"{relevance_display}/100")
-            with metric_columns[1]:
-                st.metric("Fluency Score", f"{fluency}/100" if fluency is not None else "Skipped")
-            with metric_columns[2]:
-                st.metric("Overall", f"{overall}/100")
+        st.write("")
+        st.subheader("Evaluation results")
+        metric_columns = st.columns(3, gap="medium")
+        with metric_columns[0]:
+            st.metric("Relevance Score", f"{relevance_display}/100")
+        with metric_columns[1]:
+            st.metric("Fluency Score", f"{fluency}/100" if fluency is not None else "Skipped")
+        with metric_columns[2]:
+            st.metric("Overall", f"{overall}/100")
 
-            if evaluation_mode == "offline":
-                st.warning(
-                    "Offline estimate shown. Semantic image-caption matching needs the "
-                    "comparison model weights; this estimate uses only local image and "
-                    "caption properties and may not reflect actual relevance."
+        if evaluation_mode == "offline":
+            st.warning(
+                "Offline estimate shown. Semantic image-caption matching needs the "
+                "comparison model weights; this estimate uses only local image and "
+                "caption properties and may not reflect actual relevance."
+            )
+        elif relevance_display >= 70:
+            st.success("The caption appears well aligned with the image.")
+        elif relevance_display >= 50:
+            st.info("The caption may be partially aligned. Review the details.")
+        else:
+            st.warning("The caption may not closely match the image. Please review it.")
+
+        if check_grammar:
+            with st.container(border=True):
+                st.markdown("**Hindi grammar & fluency**")
+                st.write(fluency_summary)
+                if fluency_issues:
+                    for issue in fluency_issues:
+                        st.markdown(f"- {issue}")
+                st.caption(
+                    "This free check looks for simple text issues and is not a "
+                    "complete assessment of Hindi grammar or meaning."
                 )
-            elif relevance_display >= 70:
-                st.success("The caption appears well aligned with the image.")
-            elif relevance_display >= 50:
-                st.info("The caption may be partially aligned. Review the details.")
-            else:
-                st.warning("The caption may not closely match the image. Please review it.")
 
-            if check_grammar:
-                with st.container(border=True):
-                    st.markdown("**Hindi grammar & fluency**")
-                    st.write(fluency_summary)
-                    if fluency_issues:
-                        for issue in fluency_issues:
-                            st.markdown(f"- {issue}")
-                    st.caption(
-                        "This free check looks for simple text issues and is not a "
-                        "complete assessment of Hindi grammar or meaning."
+        if expected_text.strip():
+            with st.container(border=True):
+                st.markdown("**OCR comparison**")
+                with st.spinner("Checking text visible in the image…"):
+                    ocr_text, ocr_error = extract_visible_text(image)
+                if ocr_error:
+                    st.info(
+                        "Text recognition isn't available in this deployment. "
+                        "Your reference text was not evaluated."
                     )
-
-            if expected_text.strip():
-                with st.container(border=True):
-                    st.markdown("**OCR comparison**")
-                    with st.spinner("Checking text visible in the image…"):
-                        ocr_text, ocr_error = extract_visible_text(image)
-                    if ocr_error:
-                        st.info(
-                            "Text recognition isn't available in this deployment. "
-                            "Your reference text was not evaluated."
+                else:
+                    ocr_match = normalize_text(ocr_text) == normalize_text(expected_text)
+                    st.metric(
+                        "Visible text comparison",
+                        "Match" if ocr_match else "Needs review",
+                    )
+                    if ocr_text:
+                        st.text_area(
+                            "Text found in image",
+                            value=ocr_text,
+                            height=100,
+                            disabled=True,
                         )
                     else:
-                        ocr_match = normalize_text(ocr_text) == normalize_text(expected_text)
-                        st.metric(
-                            "Visible text comparison",
-                            "Match" if ocr_match else "Needs review",
-                        )
-                        if ocr_text:
-                            st.text_area(
-                                "Text found in image",
-                                value=ocr_text,
-                                height=100,
-                                disabled=True,
-                            )
-                        else:
-                            st.caption("No text was detected in the image.")
+                        st.caption("No text was detected in the image.")
 
-            st.session_state["visual_evaluator_result"] = {
-                "relevance_score": relevance_display,
-                "fluency_score": fluency,
-                "overall_score": overall,
-                "fluency_summary": fluency_summary,
-                "ocr_comparison": (
-                    ("Match" if ocr_match else "Needs review")
-                    if ocr_match is not None
-                    else "Unavailable or not requested"
-                ),
-            }
+        st.session_state["visual_evaluator_result"] = {
+            "relevance_score": relevance_display,
+            "fluency_score": fluency,
+            "overall_score": overall,
+            "fluency_summary": fluency_summary,
+            "ocr_comparison": (
+                ("Match" if ocr_match else "Needs review")
+                if ocr_match is not None
+                else "Unavailable or not requested"
+            ),
+        }
 
 st.markdown("---")
 st.markdown(
