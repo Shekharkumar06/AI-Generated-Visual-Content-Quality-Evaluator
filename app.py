@@ -1,4 +1,5 @@
 import io
+import os
 import re
 
 import streamlit as st
@@ -16,28 +17,83 @@ MODEL_ID = "sentence-transformers/clip-ViT-B-32-multilingual-v1"
 
 @st.cache_resource(show_spinner=False)
 def load_relevance_model():
-    """Load the existing multilingual image-caption comparison model on CPU."""
-    from sentence_transformers import SentenceTransformer
+    """
+    Load the model once per running app process.
 
-    return SentenceTransformer(MODEL_ID, device="cpu")
+    Prefer cached local weights first. If unavailable, try one online download.
+    Return the error instead of raising it so a failed download is cached too;
+    this prevents retrying a timed-out download on every Streamlit rerun.
+    """
+    try:
+        from sentence_transformers import SentenceTransformer
+
+        try:
+            model = SentenceTransformer(
+                MODEL_ID,
+                device="cpu",
+                local_files_only=True,
+            )
+            return model, None
+        except Exception:
+            # Only attempt a network download once if no complete local cache exists.
+            os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "30")
+            os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "10")
+            model = SentenceTransformer(MODEL_ID, device="cpu")
+            return model, None
+    except Exception:
+        return None, "The image comparison model is not available locally."
 
 
-def relevance_score(image: Image.Image, caption: str) -> float:
-    """Return the image/caption cosine similarity as a percentage-like score."""
-    import torch
+def offline_relevance_estimate(image: Image.Image, caption: str) -> int:
+    """
+    Provide a clearly labelled, coarse offline estimate when model weights
+    cannot be loaded. This is not semantic image-caption matching.
+    """
+    width, height = image.size
+    word_count = len(caption.split())
+    has_hindi = bool(re.search(r"[\\u0900-\\u097F]", caption))
+    score = 35
+    if word_count >= 4:
+        score += 20
+    elif word_count >= 2:
+        score += 10
+    if has_hindi:
+        score += 15
+    if width >= 256 and height >= 256:
+        score += 20
+    elif width >= 100 and height >= 100:
+        score += 10
+    if caption.strip().endswith(("।", ".", "!", "?")):
+        score += 5
+    return max(0, min(95, score))
 
-    model = load_relevance_model()
-    image_vector = model.encode(
-        [image.convert("RGB")],
-        convert_to_tensor=True,
-        normalize_embeddings=True,
-    )
-    text_vector = model.encode(
-        [caption],
-        convert_to_tensor=True,
-        normalize_embeddings=True,
-    )
-    return float(torch.sum(image_vector * text_vector, dim=1).item())
+
+def relevance_score(image: Image.Image, caption: str) -> tuple[float | None, int | None, str]:
+    """
+    Return (raw cosine score, offline estimate, mode).
+    A real semantic score is returned only when the pretrained model is available.
+    """
+    model, _load_error = load_relevance_model()
+    if model is None:
+        return None, offline_relevance_estimate(image, caption), "offline"
+
+    try:
+        import torch
+
+        image_vector = model.encode(
+            [image.convert("RGB")],
+            convert_to_tensor=True,
+            normalize_embeddings=True,
+        )
+        text_vector = model.encode(
+            [caption],
+            convert_to_tensor=True,
+            normalize_embeddings=True,
+        )
+        raw_score = float(torch.sum(image_vector * text_vector, dim=1).item())
+        return raw_score, None, "model"
+    except Exception:
+        return None, offline_relevance_estimate(image, caption), "offline"
 
 
 def check_hindi_fluency(text: str) -> tuple[int, str, list[str]]:
@@ -217,29 +273,26 @@ if evaluate:
         ocr_match = None
         evaluation_error = None
 
-        try:
-            with st.spinner("Evaluating image and caption…"):
-                relevance_raw = relevance_score(image, current_caption)
-        except Exception:
-            evaluation_error = (
-                "The image could not be evaluated right now. Please check your "
-                "connection and try again."
+        with st.spinner("Evaluating image and caption…"):
+            relevance_raw, offline_score, evaluation_mode = relevance_score(
+                image, current_caption
             )
 
-        if evaluation_error:
-            st.error(evaluation_error)
-        else:
-            if check_grammar:
-                fluency, fluency_summary, fluency_issues = check_hindi_fluency(
-                    current_caption
-                )
+        if check_grammar:
+            fluency, fluency_summary, fluency_issues = check_hindi_fluency(
+                current_caption
+            )
 
+        if evaluation_mode == "model" and relevance_raw is not None:
             # Map raw cosine similarity to a readable 0–100 alignment indicator.
             # This is an alignment index, not a calibrated probability.
             relevance_display = round(
                 max(0.0, min(1.0, (relevance_raw + 1.0) / 2.0)) * 100
             )
-            overall = get_overall_score(relevance_display, fluency)
+        else:
+            relevance_display = int(offline_score or 0)
+
+        overall = get_overall_score(relevance_display, fluency)
 
             st.write("")
             st.subheader("Evaluation results")
@@ -251,7 +304,13 @@ if evaluate:
             with metric_columns[2]:
                 st.metric("Overall", f"{overall}/100")
 
-            if relevance_display >= 70:
+            if evaluation_mode == "offline":
+                st.warning(
+                    "Offline estimate shown. Semantic image-caption matching needs the "
+                    "comparison model weights; this estimate uses only local image and "
+                    "caption properties and may not reflect actual relevance."
+                )
+            elif relevance_display >= 70:
                 st.success("The caption appears well aligned with the image.")
             elif relevance_display >= 50:
                 st.info("The caption may be partially aligned. Review the details.")
@@ -311,7 +370,7 @@ if evaluate:
 st.markdown("---")
 st.markdown(
     '<div class="ve-footnote">Scores are guidance for review, not guarantees of correctness. '
-    'Image-caption relevance is an alignment indicator, and the optional fluency check '
-    'uses lightweight, rule-based suggestions.</div>',
+    'Image-caption relevance is an alignment indicator. If model weights are unavailable, '
+    'the app uses a clearly labelled basic offline estimate; fluency checks are rule-based.</div>',
     unsafe_allow_html=True,
 )
