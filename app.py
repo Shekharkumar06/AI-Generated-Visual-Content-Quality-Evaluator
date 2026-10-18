@@ -79,9 +79,9 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip().casefold())
 
 
-def get_overall_score(relevance: float, fluency: int | None) -> int:
-    """Combine available scores without treating a skipped check as zero."""
-    rel = max(0.0, min(1.0, (relevance + 1.0) / 2.0)) * 100
+def get_overall_score(relevance_score_0_100: int, fluency: int | None) -> int:
+    """Combine the displayed relevance score with fluency when enabled."""
+    rel = max(0, min(100, relevance_score_0_100))
     if fluency is None:
         return round(rel)
     return round((rel + fluency) / 2)
@@ -239,7 +239,7 @@ if evaluate:
             relevance_display = round(
                 max(0.0, min(1.0, (relevance_raw + 1.0) / 2.0)) * 100
             )
-            overall = get_overall_score(relevance_raw, fluency)
+            overall = get_overall_score(relevance_display, fluency)
 
             st.write("")
             st.subheader("Evaluation results")
