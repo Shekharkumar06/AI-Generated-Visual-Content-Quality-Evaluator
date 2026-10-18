@@ -1,6 +1,5 @@
 import io
 import re
-from difflib import SequenceMatcher
 
 import streamlit as st
 from PIL import Image
@@ -212,11 +211,9 @@ if evaluate:
         st.error("Please enter a Hindi caption first.")
     else:
         current_caption = caption.strip()
-        relevance_raw = None
         fluency = None
         fluency_summary = "Skipped"
         fluency_issues: list[str] = []
-        ocr_result = None
         ocr_match = None
         evaluation_error = None
 
@@ -284,7 +281,6 @@ if evaluate:
                             "Your reference text was not evaluated."
                         )
                     else:
-                        ocr_result = ocr_text
                         ocr_match = normalize_text(ocr_text) == normalize_text(expected_text)
                         st.metric(
                             "Visible text comparison",
@@ -306,7 +302,7 @@ if evaluate:
                 "overall_score": overall,
                 "fluency_summary": fluency_summary,
                 "ocr_comparison": (
-                    "Match" if ocr_match else "Needs review"
+                    ("Match" if ocr_match else "Needs review")
                     if ocr_match is not None
                     else "Unavailable or not requested"
                 ),
